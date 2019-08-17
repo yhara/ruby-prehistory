@@ -73,6 +73,7 @@ Dir.chdir("#{out_dir}/archives") do
   end
 end
 
+DATE_REGEXP = /^\+{3} \S+\t\K\w{3} .*/
 # Make
 Dir.chdir("#{out_dir}") do
   files.each do |filename|
@@ -81,22 +82,32 @@ Dir.chdir("#{out_dir}") do
     case filename
     when /\Aruby-[\d.]+(-[\d.]+)\.diff\.gz\z/
       message = "ruby#{$1}"
-      IO.popen(%W[gzcat #{tar_path}], "r") do |gz|
-        system *%W"patch -d repo -p1", in: gz, exception: true
+      diff = IO.popen(%W[gzcat #{tar_path}], "rb", &:read)
+      date = diff[DATE_REGEXP]
+      IO.popen([*%W"patch -d repo -p1"], "w") do |f|
+        f.write(diff)
       end
+      $?.success? or raise "Command failed with exit #{$?.exitstatus}: path"
     when /-patch\z/
       message = $`
+      date = File.open(tar_path, "rb") do |f|
+        f.gets
+        f.gets
+        f.gets[DATE_REGEXP]
+      end
       system *%W"patch -d repo -p1", in: tar_path, exception: true
     when /\.tar\./
       message = $`
-      system *%W"tar -xzf #{tar_path}", exception: true
+      system *%W"tar -xpzf #{tar_path}", exception: true
       FileUtils.rm_rf(Dir.glob("repo/*"))
       Dir.glob(%w"ruby/* ruby-*/*") do |n|
         File.rename(n, "repo/#{File.basename(n)}")
       end
       FileUtils.rmdir(Dir.glob(%w"ruby ruby-*"))
+      date = File.mtime("repo/ChangeLog")
     end
+    puts "Date: #{date}"
     system *%W"git -C repo add .", exception: true
-    system *%W"git -C repo commit --author=#{AUTHOR} -m #{message}", exception: true
+    system *%W"git -C repo commit --date=#{date} --author=#{AUTHOR} -m #{message}", exception: true
   end
 end
