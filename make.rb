@@ -65,12 +65,13 @@ Dir.chdir(out_dir) do
   system(*%W"git -C repo init")
 end
 
+BASE_URI = URI("http://ftp.ruby-lang.org/pub/ruby/1.0/")
 # Download
 Dir.chdir("#{out_dir}/archives") do
   files.each do |filename|
     next if File.exist?(filename)
     puts "Download #{filename}"
-    File.write(filename, open("http://ftp.ruby-lang.org/pub/ruby/1.0/#{filename}").read)
+    (BASE_URI + filename).open {|f| IO.copy_stream(f, filename)}
   end
 end
 
