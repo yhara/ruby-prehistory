@@ -48,7 +48,7 @@ EOD
 files = FILES.lines.reject{|line|
   line =~ /broken/
 }.reject{|line|
-  line =~ /diff/  # Pull Request please.
+  line =~ /diff|patch/  # Pull Request please.
 }.map{|line|
   line.split.first
 }
@@ -77,13 +77,13 @@ Dir.chdir("#{out_dir}") do
   files.each do |filename|
     tar_path = "archives/#{filename}"
     puts tar_path
-    system *%W"tar -xzf #{tar_path}"
+    system *%W"tar -xzf #{tar_path}", exception: true
     FileUtils.rm_rf(Dir.glob("repo/*"))
     Dir.glob(%w"ruby/* ruby-*/*") do |n|
       File.rename(n, "repo/#{File.basename(n)}")
     end
     FileUtils.rmdir(Dir.glob(%w"ruby ruby-*"))
-    system *%W"git -C repo add ."
-    system *%W"git -C repo commit -m #{filename}"
+    system *%W"git -C repo add .", exception: true
+    system *%W"git -C repo commit -m #{filename}", exception: true
   end
 end
