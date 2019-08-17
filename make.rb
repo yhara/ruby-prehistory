@@ -1,4 +1,5 @@
 require 'open-uri'
+require 'fileutils'
 
 out_dir = ARGV[0]
 unless File.directory?(out_dir)
@@ -51,10 +52,15 @@ files = FILES.lines.reject{|line|
 }.map{|line|
   line.split.first
 }
-  
+
 Dir.chdir(out_dir) do
-  system "mkdir -p repo; cd repo; git init"
-  system "mkdir -p archives"
+  %w[repo archives].each do |dir|
+    begin
+      Dir.mkdir(dir)
+    rescue Errno::EEXIST
+    end
+  end
+  system(*%W"git -C repo init")
 end
 
 # Download
@@ -67,21 +73,17 @@ Dir.chdir("#{out_dir}/archives") do
 end
 
 # Make
-files.each do |filename|
-  tar_path = "../archives/#{filename}"
-  puts tar_path
-  Dir.chdir("#{out_dir}/repo") do
-    system "tar xvf #{tar_path}"
-    system "mv ruby/* ."
-    system "mv ruby-*/* ."
-    system "rmdir ruby"
-    system "rmdir ruby-*"
-    system "git add ."
-    system "git commit -m #{filename}"
+Dir.chdir("#{out_dir}") do
+  files.each do |filename|
+    tar_path = "archives/#{filename}"
+    puts tar_path
+    system *%W"tar -xzf #{tar_path}"
+    FileUtils.rm_rf(Dir.glob("repo/*"))
+    Dir.glob(%w"ruby/* ruby-*/*") do |n|
+      File.rename(n, "repo/#{File.basename(n)}")
+    end
+    FileUtils.rmdir(Dir.glob(%w"ruby ruby-*"))
+    system *%W"git -C repo add ."
+    system *%W"git -C repo commit -m #{filename}"
   end
-  system "rm -r #{out_dir}/repo/*"
-end
-
-Dir.chdir("#{out_dir}/repo") do
-  system "git reset --hard"
 end
