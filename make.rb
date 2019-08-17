@@ -6,6 +6,8 @@ unless File.directory?(out_dir)
   raise "usage: #$0 OUT_DIR"
 end
 
+AUTHOR = 'Yukihiro Matsumoto <matz@ruby-lang.org>'
+
 FILES = <<EOD
 ruby-0.49.tar.gz 214390 2015-07-25T01:35:23.000Z
 ruby-0.50.tar.gz 219673 2015-07-25T01:35:23.000Z
@@ -84,6 +86,6 @@ Dir.chdir("#{out_dir}") do
     end
     FileUtils.rmdir(Dir.glob(%w"ruby ruby-*"))
     system *%W"git -C repo add .", exception: true
-    system *%W"git -C repo commit -m #{filename}", exception: true
+    system *%W"git -C repo commit --author=#{AUTHOR} -m #{filename}", exception: true
   end
 end
