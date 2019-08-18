@@ -1,9 +1,12 @@
 require 'open-uri'
+require 'fileutils'
 
 out_dir = ARGV[0]
 unless File.directory?(out_dir)
   raise "usage: #$0 OUT_DIR"
 end
+
+AUTHOR = 'Yukihiro Matsumoto <matz@ruby-lang.org>'
 
 FILES = <<EOD
 ruby-0.49.tar.gz 214390 2015-07-25T01:35:23.000Z
@@ -27,8 +30,8 @@ ruby-0.69.tar.gz 228241 2015-07-25T01:35:28.000Z
 ruby-0.70-patch 2442 2018-01-25T04:29:11.000Z
 ruby-0.71.tar.gz 226276 2015-07-25T01:35:28.000Z
 ruby-0.71-0.72.diff.gz 4785 2018-01-25T04:29:11.000Z
-ruby-0.73-950413.tar.gz 237953 2015-07-25T01:35:28.000Z
 ruby-0.73.tar.gz 228960 2015-07-25T01:35:28.000Z
+ruby-0.73-950413.tar.gz 237953 2015-07-25T01:35:28.000Z
 ruby-0.76.tar.gz 243351 2015-07-25T01:35:28.000Z
 ruby-0.95.tar.gz 311119 2015-07-25T01:35:29.000Z
 ruby-0.99.4-961224.tar.gz 352090 2015-07-25T01:35:29.000Z
@@ -46,42 +49,65 @@ EOD
 
 files = FILES.lines.reject{|line|
   line =~ /broken/
-}.reject{|line|
-  line =~ /diff/  # Pull Request please.
 }.map{|line|
   line.split.first
 }
-  
+
 Dir.chdir(out_dir) do
-  system "mkdir -p repo; cd repo; git init"
-  system "mkdir -p archives"
+  %w[repo archives].each do |dir|
+    begin
+      Dir.mkdir(dir)
+    rescue Errno::EEXIST
+    end
+  end
+  system(*%W"git -C repo init")
 end
 
+BASE_URI = URI("http://ftp.ruby-lang.org/pub/ruby/1.0/")
 # Download
 Dir.chdir("#{out_dir}/archives") do
   files.each do |filename|
     next if File.exist?(filename)
     puts "Download #{filename}"
-    File.write(filename, open("http://ftp.ruby-lang.org/pub/ruby/1.0/#{filename}").read)
+    (BASE_URI + filename).open {|f| IO.copy_stream(f, filename)}
   end
 end
 
+DATE_REGEXP = /^\+{3} \S+\t\K\w{3} .*/
 # Make
-files.each do |filename|
-  tar_path = "../archives/#{filename}"
-  puts tar_path
-  Dir.chdir("#{out_dir}/repo") do
-    system "tar xvf #{tar_path}"
-    system "mv ruby/* ."
-    system "mv ruby-*/* ."
-    system "rmdir ruby"
-    system "rmdir ruby-*"
-    system "git add ."
-    system "git commit -m #{filename}"
+Dir.chdir("#{out_dir}") do
+  files.each do |filename|
+    tar_path = "archives/#{filename}"
+    puts tar_path
+    case filename
+    when /\Aruby-[\d.]+(-[\d.]+)\.diff\.gz\z/
+      message = "ruby#{$1}"
+      diff = IO.popen(%W[gzcat #{tar_path}], "rb", &:read)
+      date = diff[DATE_REGEXP]
+      IO.popen([*%W"patch -d repo -p1"], "w") do |f|
+        f.write(diff)
+      end
+      $?.success? or raise "Command failed with exit #{$?.exitstatus}: path"
+    when /-patch\z/
+      message = $`
+      date = File.open(tar_path, "rb") do |f|
+        f.gets
+        f.gets
+        f.gets[DATE_REGEXP]
+      end
+      system *%W"patch -d repo -p1", in: tar_path, exception: true
+    when /\.tar\./
+      message = $`
+      system *%W"tar -xpzf #{tar_path}", exception: true
+      FileUtils.rm_rf(Dir.glob("repo/*"))
+      Dir.glob(%w"ruby/* ruby-*/*") do |n|
+        File.rename(n, "repo/#{File.basename(n)}")
+      end
+      FileUtils.rmdir(Dir.glob(%w"ruby ruby-*"))
+      date = File.mtime("repo/ChangeLog")
+    end
+    puts "Date: #{date}"
+    system *%W"git -C repo add .", exception: true
+    system *%W"git -C repo commit --date=#{date} --author=#{AUTHOR} -m #{message}", exception: true
   end
-  system "rm -r #{out_dir}/repo/*"
-end
-
-Dir.chdir("#{out_dir}/repo") do
-  system "git reset --hard"
 end
